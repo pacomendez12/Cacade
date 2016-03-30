@@ -1,0 +1,4 @@
+Cascade implementation using opencv
+
+This is a simple implementation of cascade based con Viola & Jhones paper,
+basic image operations are done using opencv core.

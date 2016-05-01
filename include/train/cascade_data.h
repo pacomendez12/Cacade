@@ -36,7 +36,7 @@ using namespace std;
 
 #define MAX_CAT_COUNT		"maxCatCount"
 
-
+#define FEATURES			"features"
 
 
 class Cascade_data {
@@ -81,6 +81,8 @@ class Cascade_data {
 
 	bool read(const FileNode &root);
 
+	inline Size& getOriginalWindowSize() { return origWinSize; }
+
 	private:
 
 	int stageType;
@@ -99,17 +101,5 @@ class Cascade_data {
 
 };
 
-class Cascade {
-	public:
-		bool load_from_file(const std::string file);
-
-
-	private:
-		bool read(const FileNode& root);
-
-		Cascade_data data;
-
-
-};
 
 #endif /* end of include guard: CASCADE_DATA_H */

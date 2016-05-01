@@ -1,8 +1,7 @@
 #include <train/cascade_data.h>
 
+#define DEBUG
 
-
-/************************ Cascade_data functions ***************************/
 Cascade_data::Cascade_data() {
 	stageType = featureType = ncategories = minNodesPerTree =
 		maxNodesPerTree = 0;
@@ -160,30 +159,3 @@ Cascade_data::read(const FileNode &root) {
 }
 
 
-
-
-
-/************************ Cascade functions *********************************/
-
-
-bool Cascade::load_from_file(const std::string filename)
-{
-	data = Cascade_data();
-
-	FileStorage fs(filename, FileStorage::READ);
-	if (!fs.isOpened()) {
-		return false;
-	}
-	return read(fs.getFirstTopLevelNode());
-	//return true;
-}
-
-
-bool Cascade::read(const FileNode& root)
-{
-	if (data.read(root)) {
-		return true;
-	} else {
-		return true;
-	}
-}

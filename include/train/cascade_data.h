@@ -29,6 +29,7 @@ using namespace std;
 #define BOOST_TYPE			"BOOST"
 #define STAGE_THRESHOLD		"stageThreshold"
 #define WEAK_CLASSIFIERS	"weakClassifiers"
+#define MAX_WEAK_COUNT		"maxWeakCount"
 #define LEAF_VALUES			"leafValues"
 #define INTERNAL_NODES		"internalNodes"
 
@@ -82,6 +83,20 @@ class Cascade_data {
 	bool read(const FileNode &root);
 
 	inline Size& getOriginalWindowSize() { return origWinSize; }
+
+
+	inline int getMaxNodesPerTree() { return maxNodesPerTree; }
+	inline std::vector<Stage> getStages() { return stages; }
+	inline std::vector<Stump>& getStumps() { return stumps; }
+
+	inline void printStages() {
+
+		for(int i = 0; i < stages.size(); i++) {
+			std::cout << "stage[" << i << "] = { \n\t\t first = " <<
+				stages[i].first << ", ntrees = " << stages[i].ntrees <<
+				", threshold = " << stages[i].threshold << "\n}" << std::endl;
+		}
+	}
 
 	private:
 

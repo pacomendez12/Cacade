@@ -70,6 +70,7 @@ Cascade_data::read(const FileNode &root) {
 	for (int i = 0; it != end; ++i, ++it) {
 		FileNode node_stage = *it;
 		Stage stage;
+		stage.ntrees = (int) node_stage[MAX_WEAK_COUNT];
 		stage.threshold = (float) node_stage[STAGE_THRESHOLD] - THRESHOLD_EPS;
 		FileNode node_weak_classifier = node_stage[WEAK_CLASSIFIERS];
 
@@ -78,7 +79,7 @@ Cascade_data::read(const FileNode &root) {
 			return false;
 		}
 
-		stage.ntrees = (int) node_weak_classifier.size();
+		//stage.ntrees = (int) node_weak_classifier.size();
 		stage.first = (int) classifiers.size();
 		stages.push_back(stage);
 		classifiers.reserve(stages[i].first + stages[i].ntrees);
@@ -138,6 +139,10 @@ Cascade_data::read(const FileNode &root) {
 				leaves.push_back((float) *it_internal);
 		}
 	}
+
+	/*for (int i = 0; i < stages.size(); i++) {
+		cout << " no weak = " << stages[i].ntrees << endl;
+	}*/
 
 	if (maxNodesPerTree == 1) {
 		int nodeOfs = 0, leafOfs = 0;

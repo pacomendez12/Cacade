@@ -2,10 +2,11 @@
 #include <util/util.h>
 #include <math.h>
 #include "opencv2/core.hpp"
+#include "opencv2/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
 #include <iostream>
 
-#define DEBUG
+//#define DEBUG
 
 using namespace cv;
 using namespace std;
@@ -26,6 +27,8 @@ feature_evaluator::feature_evaluator() {
 	optfeatures = makePtr<std::vector<OptFeature>>();
 	optfeatures_lbuf = makePtr<std::vector<OptFeature>>();
 
+	optfeaturesPtr = 0;
+	pwin = 0;
 	localSize = Size(4, 2);
 	lbufSize = Size(0, 0);
 	nchannels = 0;
@@ -54,13 +57,18 @@ feature_evaluator::read(FileNode node, Size s) {
 	ufbuf.release();
 
 	/* reading every feature from xml file */
+	//cout << "There are " << n << " features to be read" << endl;
 	for(int i = 0; i < n; i++, it++) {
 		if (!(*features)[i].read(*it)) {
 			std::cout << " Error while reading a feature from file" <<
 																	std::endl;
 			return false;
 		}
-
+#if 0
+		cout << " Feature[" << i << "] = " << (*features)[i].rect[0].r.x << endl;
+		cout << " Feature[" << i << "] = " << (*features)[i].rect[1].r.x << endl;
+		cout << " Feature[" << i << "] = " << (*features)[i].rect[2].r.x << endl;
+#endif
 		if ((*features)[i].tilted)
 			hasTiltedFeatures = true;
 	}
@@ -92,7 +100,6 @@ updateScaleData(const Size& size, const std::vector<float>& scales) {
 		scale_data = makePtr<std::vector<ScaleData>> ();
 
 	size_t no_scales = scales.size();
-	cout << __func__ << ": no_scales = " << no_scales << endl;
 	bool recalculateOptFeatures;
 	if (recalculateOptFeatures = (no_scales != getScaleData().size()))
 		resizeScaleData(no_scales);
@@ -163,22 +170,18 @@ feature_evaluator::setImage(Mat& image, const std::vector<float>& scales) {
 			copyVectorToUMat(*scale_data, uscaleData);
 		}
 
-		//if (image.isUMat() && localSize.area() > 0) {
-			/* TODO: remove this part, I don't want to use UMat*/
-		//} else {
-			sbuf.create(sbufSize.height * nchannels, sbufSize.width, CV_32S);
-			rbuf.create(size_first, CV_8U);
+		sbuf.create(sbufSize.height * nchannels, sbufSize.width, CV_32S);
+		rbuf.create(size_first, CV_8U);
 
-			for (int i = 0; i < no_scales; i++) {
-				const ScaleData& s = scale_data->at(i);
-				Mat dst(s.szi.height - 1, s.szi.width - 1, CV_8U, rbuf.ptr());
-				cv::resize(image, dst, dst.size(), 1.0 / s.scale, 1.0 / s.scale,
-						INTER_LINEAR);
-				computeChannels((int) i, dst);
-			}
+		for (int i = 0; i < no_scales; i++) {
+			const ScaleData& s = scale_data->at(i);
+			Mat dst(s.szi.height - 1, s.szi.width - 1, CV_8U, rbuf.ptr());
+			cv::resize(image, dst, dst.size(), 1.0 / s.scale, 1.0 / s.scale,
+					INTER_LINEAR);
+			computeChannels((int) i, dst);
+		}
 
-			sbufFlag = SBUF_VALID;
-		//}
+		sbufFlag = SBUF_VALID;
 		return true;
 	}
 	return false;
@@ -187,19 +190,19 @@ feature_evaluator::setImage(Mat& image, const std::vector<float>& scales) {
 
 void
 feature_evaluator::computeChannels(int scaleIdx, Mat img) {
-		const ScaleData & s = getScaleData(scaleIdx);
+	const ScaleData & s = getScaleData(scaleIdx);
 
-		sqofs = hasTiltedFeatures ? sbufSize.area() * 2 : sbufSize.area();
+	sqofs = hasTiltedFeatures ? sbufSize.area() * 2 : sbufSize.area();
 
-		Mat sum(s.szi, CV_32S, sbuf.ptr<int>() + s.layer_ofs, sbuf.step);
-		Mat sqsum(s.szi, CV_32S, sum.ptr<int>() + sqofs, sbuf.step);
+	Mat sum(s.szi, CV_32S, sbuf.ptr<int>() + s.layer_ofs, sbuf.step);
+	Mat sqsum(s.szi, CV_32S, sum.ptr<int>() + sqofs, sbuf.step);
 
-		if (hasTiltedFeatures) {
-			Mat tilted(s.szi, CV_32S, sum.ptr<int>() + tofs, sbuf.step);
-			integral(img, sum, sqsum, tilted, CV_32S, CV_32S);
-		} else {
-			integral(img, sum, sqsum, noArray(), CV_32S, CV_32S);
-		}
+	if (hasTiltedFeatures) {
+		Mat tilted(s.szi, CV_32S, sum.ptr<int>() + tofs, sbuf.step);
+		integral(img, sum, sqsum, tilted, CV_32S, CV_32S);
+	} else {
+		integral(img, sum, sqsum, noArray(), CV_32S, CV_32S);
+	}
 }
 
 
@@ -232,31 +235,37 @@ feature_evaluator::computeOptFeatures() {
 	copyVectorToUMat(*optfeatures_lbuf, ufbuf);
 }
 
-
+int si = -1;
+int times = 0;
 bool
-feature_evaluator::setWindow(Point p, int scaleIdx) {
-	const ScaleData& scale = getScaleData(scaleIdx);
+feature_evaluator::setWindow(Point pt, int scaleIdx) {
 
-	if (p.x < 0 || p.y < 0 || p.x + origWinSize.width >= scale.szi.width ||
-			p.y + origWinSize.height >= scale.szi.height)
-		return false;
 
-	pwin = &sbuf.at<int>(p) + scale.layer_ofs;
+    const ScaleData& s = getScaleData(scaleIdx);
 
-	const int * pq = (const int *) (pwin + sqofs);
-	int valsum = CALC_SUM_OFS(nofs, pwin);
-	unsigned valsqsum = (unsigned) (CALC_SUM_OFS(nofs, pq));
-	double area = normrect.area();
-	double nf = area * valsum - (double) pow(valsum, 2);
-	if (nf > 0.0) {
-		nf = std::sqrt(nf);
-		varianceNormFactor = (float) (1 / nf);
-	} else {
-		varianceNormFactor = 1.0;
-		return false;
-	}
+    if( pt.x < 0 || pt.y < 0 ||
+        pt.x + origWinSize.width >= s.szi.width ||
+        pt.y + origWinSize.height >= s.szi.height )
+        return false;
 
-	return true;
+    pwin = &sbuf.at<int>(pt) + s.layer_ofs;
+    const int* pq = (const int*)(pwin + sqofs);
+    int valsum = CALC_SUM_OFS(nofs, pwin);
+    unsigned valsqsum = (unsigned)(CALC_SUM_OFS(nofs, pq));
+
+    double area = normrect.area();
+    double nf = area * valsqsum - (double)valsum * valsum;
+    if( nf > 0.0 )
+    {
+        nf = std::sqrt(nf);
+        varianceNormFactor = (float)(1.0 / nf);
+        return area * varianceNormFactor < 1e-1;
+    }
+    else
+    {
+        varianceNormFactor = 1.f;
+        return false;
+    }
 }
 
 /************************* Feature methods  **************************/
@@ -347,4 +356,9 @@ void OptFeature::setOffsets( const Feature& _f, int step, int _tofs )
         CV_SUM_OFS( ofs[2][0], ofs[2][1], ofs[2][2], ofs[2][3], 0,
 				_f.rect[2].r, step );
     }
+}
+
+
+float feature_evaluator::operator()(int featureIdx) const {
+	return optfeaturesPtr[featureIdx].calc(pwin) * varianceNormFactor;
 }

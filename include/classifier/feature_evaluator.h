@@ -4,8 +4,11 @@
 
 #include "opencv2/core.hpp"
 #include <iostream>
+#include <sstream>
+#include <string>
 
 using namespace cv;
+using namespace std;
 
 class Feature;
 class OptFeature;
@@ -37,10 +40,20 @@ public:
         CV_Assert( 0 <= scaleIdx && scaleIdx < (int)scale_data->size());
         return scale_data->at(scaleIdx);
     }
+
+	float operator()(int featureIdx) const;
+
+
 	bool setImage(Mat& image, const std::vector<float>& scales);
 	bool updateScaleData(const Size& size, const std::vector<float>& scales);
 	void computeChannels(int scaleIdx, Mat img);
+	bool setWindow(Point p, int scaleIdx);
 
+	inline Ptr<feature_evaluator> clone() const {
+		Ptr<feature_evaluator> ev = makePtr<feature_evaluator>();
+		*ev = *this;
+		return ev;
+	}
 
 	void getMats();
 
@@ -55,7 +68,6 @@ private:
 	sbuf_flag_t sbufFlag;
 	/* Methods */
 	void computeOptFeatures();
-	bool setWindow(Point p, int scaleIdx);
 
 
 	/* data */
@@ -104,9 +116,26 @@ public:
 	float calc( const int* pwin ) const;
 	void setOffsets( const Feature& _f, int step, int tofs );
 
+	inline std::string toString() {
+		std::stringstream ss;
+		ss << "{ ofs = [";
+		for (int i = 0; i < REC_MAX; i++) {
+			ss << "\n\t\t";
+			for (int j = 0; j < 4; j++)
+				ss << ofs[i][j] << ", ";
+		}
+		ss << "]\n\nweight = [";
+
+		for (int i = 0; i < 4; i++)
+			ss << weight[i] << ", ";
+		ss << "]" << endl;
+		return ss.str();
+	}
+
 	/* data */
 	int ofs[REC_MAX][4];
 	float weight[4];
+	int test;
 };
 
 

@@ -59,10 +59,11 @@ Cascade::detectMultiScale(Mat image, std::vector<Rect>& objects,
 	std::vector<int> rl;
 	std::vector<double> lw;
 	bool orl = false;
+	const double GROUP_EPS = 0.2;
 	if (detectObjectsMultiScaleNoGrouping(image, objects, rl, lw, scaleFactor,
 			minSize, maxSize, orl)) {
 
-		//TODO: group rectangles
+		groupRectangles(objects, minNeighbors, GROUP_EPS);
 		return true;
 	}
 
@@ -93,8 +94,6 @@ Cascade::detectObjectsMultiScaleNoGrouping(Mat image,
 
 	for (double factor = 1; ; factor *= scaleFactor) {
 		Size originalWindowSize = getOriginalWindowSize();
-		//cout << __func__ << ":  inside for, originalWindowSize = " <<
-		//	originalWindowSize << " and factor = " << factor << endl;
 		Size winSize(cvRound(originalWindowSize.width * factor),
 				cvRound(originalWindowSize.height * factor));
 
@@ -111,21 +110,13 @@ Cascade::detectObjectsMultiScaleNoGrouping(Mat image,
 	}
 
 
-	cout << __func__ << ": scales.size() = " << scales.size() << endl;
-
 	bool evaluatorResult = evaluator->setImage(image, scales);
-	cout << "evaluator->setImage returned " << evaluatorResult << endl;
 	if (scales.size() == 0 || !evaluatorResult)
 		return false;
 
 	evaluator->getMats();
 
-	{ /* private scope */
-		//Mat currentMask;
-		/*if(maskGenerator) {
-			currentMask = maskGenerator->generateMask(image);
-		}*/
-
+	{
 		size_t nscales = scales.size();
 		cv::AutoBuffer<int> stripeSizeBuf(nscales);
 		int * stripeSizes = stripeSizeBuf;
@@ -144,18 +135,80 @@ Cascade::detectObjectsMultiScaleNoGrouping(Mat image,
 		classifier->setDataClassifier(this, (int)nscales, nstripes, s,
 				stripeSizes, candidates, rejectLevels, levelWeights,
 				outputRejectLevels, mtx);
-		/*TODO: finish it */
+		classifier->runClassifier(0, nstripes);
 	}
 
 	return true;
 }
 
+int itera = 0;
+int
+Cascade::predictOrderedStump(Cascade & cascade,
+						Ptr<feature_evaluator> &_eval, double & sum) {
+	if (data.getStumps().empty())
+		return EPREDICTION;
+	const Cascade_data::Stump * cascadeStumps = data.getStumps().data();
+	const std::vector<Cascade_data::Stump> & stumps = data.getStumps();
+	const std::vector<Cascade_data::Stage>& stages = data.getStages();
+	feature_evaluator & eval = *_eval;
 
+
+	int nstages = (int) data.getStages().size();
+	double tmpData = 0;
+
+//#pragma omp parallel for private(nstages)
+	for (int idxStages = 0; idxStages < nstages; idxStages++) {
+		tmpData = 0;
+		const Cascade_data::Stage & stage = stages[idxStages];
+		int ntrees = stage.ntrees;
+		if (ntrees > 5000) {
+			cout << "stage " << idxStages << ", ntrees = " << ntrees << endl;
+			cascade.data.printStages();
+			cout << "ERROR: ntrees is bad value" << endl;
+
+		}
+
+		for (int i = 0; i < ntrees; i++) {
+			const Cascade_data::Stump & stump = cascadeStumps[i];
+			if (stump.featureIdx >= data.getStumps().size()) {
+				cout << " ERROR: stump.featureIdx = " << stump.featureIdx << endl;
+				if (itera++ < 10)
+					continue;
+				else
+					exit(0);
+			}
+
+			double value = eval(stump.featureIdx);
+			tmpData += (value  < stump.threshold ? stump.left : stump.right);
+		}
+
+		if (tmpData < stage.threshold) {
+			sum = tmpData;
+			return -idxStages;
+		}
+
+		cascadeStumps += ntrees;
+	}
+
+	sum = tmpData;
+	return 1;
+}
+
+//#define DEBUG_NO_DATA
 
 int
-Cascade::runAt(Ptr<feature_evaluator>& feval, Point p, int scaleIdx,
+Cascade::runAt(Ptr<feature_evaluator>& feval, const Point & p, int scaleIdx,
 		double& weight) {
-	/* TODO: this method */
+
+	if (!feval->setWindow(p, scaleIdx)) return ENOSETWINDOW;
+
+	int result;
+	if (data.getMaxNodesPerTree() == 1) {
+		return predictOrderedStump(*this, feval, weight);
+	} else
+		cout << "Debug why here??" << endl;
+		//return predictOrdered(*this, evaluator, weight);
+
 }
 
 /* ************************ Classifier methods **************************** */
@@ -168,8 +221,8 @@ Classifier::setDataClassifier(Cascade * cptr, int _nscales, int _nstripes,
 	nscales = _nscales;
 	nstripes = _nstripes;
 	scaleData = _scaleData;
-	stripeSize = _stripeSize;
-	Rectangles = &_vec;
+	stripeSizes = _stripeSize;
+	rectangles = &_vec;
 	rejectedLevels = outputLevels ? &_levels : nullptr;
 	levelWeights = outputLevels ? &_weights : nullptr;
 	mtx = &_mtx;
@@ -177,7 +230,66 @@ Classifier::setDataClassifier(Cascade * cptr, int _nscales, int _nstripes,
 
 
 void Classifier::runClassifier(int start, int end) {
+#pragma omp parallel
+{
+	Ptr<feature_evaluator> evaluator = CascadePtr->evaluator->clone();
+	double gypWeight = 0.0;
+	Size origWinSize = CascadePtr->data.getOriginalWindowSize();
 
-/* TODO: implement it */
+#pragma omp for schedule(dynamic)
+	for (int sidx = 0; sidx < nscales; sidx++) {
+		const feature_evaluator::ScaleData& s = scaleData[sidx];
+		float scalingFactor = s.scale;
+		int ystep = s.ystep;
+		int stripeSize = stripeSizes[sidx];
+		int y0 = start * stripeSize;
+		Size sWin = s.getWorkingSize(origWinSize);
+		int y1 = std::min(end * stripeSize, sWin.height);
 
+		Size winSize(cvRound(origWinSize.width * scalingFactor),
+				cvRound(origWinSize.height * scalingFactor));
+
+		for (int y = y0; y < y1; y += ystep) {
+			for (int x = 0; x < sWin.width; x += ystep) {
+				int result = CascadePtr->runAt(evaluator, Point(x, y),
+						sidx, gypWeight);
+				if (rejectedLevels) {
+					if (result == 1) {
+						result = -(int) CascadePtr->data.getStages().size();
+					}
+
+					if (CascadePtr->data.getStages().size() + result == 0) {
+						mtx->lock();
+						{
+							rectangles->push_back(Rect(
+										cvRound(x * scalingFactor),
+										cvRound(y * scalingFactor),
+										winSize.width, winSize.height));
+
+							rejectedLevels->push_back(-result);
+							levelWeights->push_back(gypWeight);
+						}
+						mtx->unlock();
+					}
+				} else if (result > 0) {
+					mtx->lock();
+					{
+						rectangles->push_back(Rect(
+									cvRound(x * scalingFactor),
+									cvRound(y * scalingFactor),
+									winSize.width, winSize.height));
+					}
+					mtx->unlock();
+				}
+
+				if (result == 0)
+					x += ystep;
+			}
+		}
+
+	}
 }
+}
+
+
+

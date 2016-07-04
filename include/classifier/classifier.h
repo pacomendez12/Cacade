@@ -28,8 +28,8 @@ class Classifier {
 		int nscales;
 		int nstripes;
 		const feature_evaluator::ScaleData * scaleData;
-		const int * stripeSize;
-		std::vector<Rect>* Rectangles;
+		const int * stripeSizes;
+		std::vector<Rect>* rectangles;
 		std::vector<int>* rejectedLevels;
 		std::vector<double>* levelWeights;
 		std::vector<float> scales;
@@ -51,6 +51,8 @@ class Cascade {
 				Size minSize = Size(),
 				Size maxSize = Size() );
 
+		enum {ENOSETWINDOW = -1,
+			  EPREDICTION = 0};
 
 	private:
 		bool read(const FileNode& root);
@@ -63,7 +65,10 @@ class Cascade {
 				Size minObjectSize, Size maxObjectSize,
 				bool outputRejectLevels = false );
 
-		int runAt(Ptr<feature_evaluator>& feval, Point p, int scaleIdx,
+		int predictOrderedStump(Cascade & cascade, Ptr<feature_evaluator> &
+				evaluator, double & sum);
+
+		int runAt(Ptr<feature_evaluator>& feval, const Point & p, int scaleIdx,
 				double& weight);
 
 		Cascade_data data;
